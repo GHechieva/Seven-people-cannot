@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  tripbot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - tripbot_data:/app/data
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./data/tripbot.db
+
+volumes:
+  tripbot_data:
