@@ -13,12 +13,7 @@ class UserMiddleware(BaseMiddleware):
         data: dict[str, Any],
     ) -> Any:
         session: AsyncSession = data.get("session")
-        tg_user = None
-
-        if isinstance(event, Message):
-            tg_user = event.from_user
-        elif isinstance(event, CallbackQuery):
-            tg_user = event.from_user
+        tg_user = data.get("event_from_user")
 
         if tg_user and session:
             user, _ = await get_or_create_user(
