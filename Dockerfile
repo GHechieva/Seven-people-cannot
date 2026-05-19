@@ -21,3 +21,4 @@ COPY . .
 RUN mkdir -p /app/data
 
 CMD ["python", "main.py"]
+# cache bust вторник, 19 мая 2026 г. 08:59:16 (MSK)
