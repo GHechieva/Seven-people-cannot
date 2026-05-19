@@ -5,6 +5,7 @@ import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 
 import config
@@ -22,25 +23,23 @@ logger = logging.getLogger(__name__)
 
 
 async def main() -> None:
-    # Ensure data directory exists
     os.makedirs("data", exist_ok=True)
 
-    # Init DB
     logger.info("Initialising database...")
     await init_db()
     logger.info("Database ready.")
 
-    from aiogram.client.default import DefaultBotProperties
-    bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot = Bot(
+        token=config.BOT_TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
     dp = Dispatcher(storage=MemoryStorage())
 
-    # Middlewares (order matters: DB first, then user injection)
     dp.update.middleware(DbSessionMiddleware())
     dp.update.middleware(UserMiddleware())
 
     dp.include_router(main_router)
 
-    # Start background reminder loop
     asyncio.create_task(run_daily_reminder_loop(bot))
 
     logger.info("Starting bot polling...")
