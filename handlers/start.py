@@ -1,17 +1,16 @@
 from aiogram import Router
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message
-from sqlalchemy.ext.asyncio import AsyncSession
-from models.user import User
 from keyboards.main import main_menu_keyboard
 
 router = Router()
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, current_user: User):
+async def cmd_start(message: Message, **kwargs):
+    full_name = message.from_user.full_name if message.from_user else "there"
     await message.answer(
-        f"👋 Welcome, <b>{current_user.full_name}</b>!\n\n"
+        f"👋 Welcome, <b>{full_name}</b>!\n\n"
         "I'm your <b>Trip Expense Bot</b> — your Splitwise for travel groups.\n\n"
         "Here's what I can do:\n"
         "✈️ Create & manage trips\n"
@@ -26,7 +25,7 @@ async def cmd_start(message: Message, current_user: User):
 
 
 @router.message(Command("help"))
-async def cmd_help(message: Message):
+async def cmd_help(message: Message, **kwargs):
     await message.answer(
         "📖 <b>Commands:</b>\n\n"
         "/start — Main menu\n"
