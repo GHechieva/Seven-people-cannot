@@ -30,7 +30,8 @@ async def main() -> None:
     await init_db()
     logger.info("Database ready.")
 
-    bot = Bot(token=config.BOT_TOKEN, parse_mode=ParseMode.HTML)
+    from aiogram.client.default import DefaultBotProperties
+    bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
     # Middlewares (order matters: DB first, then user injection)
