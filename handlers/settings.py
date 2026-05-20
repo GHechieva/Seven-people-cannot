@@ -5,10 +5,7 @@ from aiogram.types import Message, CallbackQuery, BufferedInputFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.user import User
-from services import (
-    get_user_trips, get_trip_by_id, export_trip_csv,
-    get_notification_setting, update_notification_setting,
-)
+from services import get_trip_by_id, export_trip_csv, get_notification_setting, update_notification_setting
 from keyboards.main import main_menu_keyboard, cancel_keyboard
 from keyboards.expenses import notification_keyboard
 from utils.states import NotificationStates
@@ -17,103 +14,81 @@ import pytz
 router = Router()
 
 
-# ─── Export CSV ───────────────────────────────────────────────────────────────
-
 @router.callback_query(F.data.startswith("export:"))
-async def export_csv(
-    callback: CallbackQuery, session: AsyncSession, current_user: User, bot: Bot
-):
+async def export_csv(callback: CallbackQuery, session: AsyncSession, current_user: User, bot: Bot, **kwargs):
     trip_id = int(callback.data.split(":")[1])
     trip = await get_trip_by_id(session, trip_id)
     if not trip:
-        await callback.answer("Trip not found.", show_alert=True)
+        await callback.answer("Поездка не найдена.", show_alert=True)
         return
-    await callback.answer("⏳ Generating CSV...")
+    await callback.answer("⏳ Генерирую CSV...")
     csv_bytes = await export_trip_csv(session, trip)
-    filename = f"{trip.name.replace(' ', '_')}_expenses.csv"
+    filename = f"{trip.name.replace(' ', '_')}_расходы.csv"
     await bot.send_document(
         callback.from_user.id,
         BufferedInputFile(csv_bytes, filename=filename),
-        caption=f"📤 <b>{trip.name}</b> — expense export",
+        caption=f"📤 <b>{trip.name}</b> — экспорт расходов",
         parse_mode="HTML",
     )
 
 
-# ─── Settings ────────────────────────────────────────────────────────────────
-
-@router.message(F.text == "⚙️ Settings")
+@router.message(F.text == "⚙️ Настройки")
 @router.message(Command("settings"))
-async def show_settings(message: Message, session: AsyncSession, current_user: User):
+@router.message(Command("настройки"))
+async def show_settings(message: Message, session: AsyncSession, current_user: User, **kwargs):
     setting = await get_notification_setting(session, current_user.id)
     enabled = setting.enabled if setting else False
     tz = setting.timezone if setting else "UTC"
     await message.answer(
-        f"⚙️ <b>Settings</b>\n\n"
-        f"🔔 Daily reminder: {'<b>ON</b>' if enabled else 'OFF'}\n"
-        f"🕙 Time: 21:00 {tz}\n\n"
-        f"Toggle reminders below. To change timezone, use /timezone",
+        f"⚙️ <b>Настройки</b>\n\n"
+        f"🔔 Ежедневное напоминание: {'<b>ВКЛ</b>' if enabled else 'ВЫКЛ'}\n"
+        f"🕙 Время: 21:00 {tz}\n\n"
+        f"Чтобы сменить часовой пояс: /часовой_пояс",
         parse_mode="HTML",
         reply_markup=notification_keyboard(enabled),
     )
 
 
 @router.callback_query(F.data == "notif:enable")
-async def enable_notif(callback: CallbackQuery, session: AsyncSession, current_user: User):
+async def enable_notif(callback: CallbackQuery, session: AsyncSession, current_user: User, **kwargs):
     setting = await get_notification_setting(session, current_user.id)
     tz = setting.timezone if setting else "UTC"
     await update_notification_setting(session, current_user.id, enabled=True, timezone_str=tz)
-    await callback.message.edit_text(
-        "🔔 <b>Daily reminders enabled!</b>\nYou'll get a reminder at 21:00 your local time.\n\nUse /timezone to set your timezone.",
-        parse_mode="HTML",
-        reply_markup=notification_keyboard(True),
-    )
-    await callback.answer("Enabled!")
+    await callback.message.edit_text("🔔 <b>Напоминания включены!</b>", parse_mode="HTML", reply_markup=notification_keyboard(True))
+    await callback.answer("Включено!")
 
 
 @router.callback_query(F.data == "notif:disable")
-async def disable_notif(callback: CallbackQuery, session: AsyncSession, current_user: User):
+async def disable_notif(callback: CallbackQuery, session: AsyncSession, current_user: User, **kwargs):
     await update_notification_setting(session, current_user.id, enabled=False)
-    await callback.message.edit_text(
-        "🔕 <b>Daily reminders disabled.</b>",
-        parse_mode="HTML",
-        reply_markup=notification_keyboard(False),
-    )
-    await callback.answer("Disabled.")
+    await callback.message.edit_text("🔕 <b>Напоминания выключены.</b>", parse_mode="HTML", reply_markup=notification_keyboard(False))
+    await callback.answer("Выключено.")
 
 
 @router.message(Command("timezone"))
-async def start_set_timezone(message: Message, state: FSMContext):
+@router.message(Command("часовой_пояс"))
+async def start_set_timezone(message: Message, state: FSMContext, **kwargs):
     await state.set_state(NotificationStates.timezone)
     await message.answer(
-        "🌍 Enter your timezone (e.g. <code>Europe/Riga</code>, <code>Europe/Berlin</code>, <code>America/New_York</code>):\n\n"
-        "Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones",
-        parse_mode="HTML",
-        reply_markup=cancel_keyboard(),
+        "🌍 Введи часовой пояс (например: <code>Europe/Moscow</code>, <code>Asia/Bangkok</code>):",
+        parse_mode="HTML", reply_markup=cancel_keyboard(),
     )
 
 
 @router.message(NotificationStates.timezone)
-async def save_timezone(message: Message, state: FSMContext, session: AsyncSession, current_user: User):
-    if message.text == "❌ Cancel":
+async def save_timezone(message: Message, state: FSMContext, session: AsyncSession, current_user: User, **kwargs):
+    if message.text == "❌ Отмена":
         await state.clear()
-        await message.answer("Cancelled.", reply_markup=main_menu_keyboard())
+        await message.answer("Отменено.", reply_markup=main_menu_keyboard())
         return
     tz_str = (message.text or "").strip()
     try:
-        pytz.timezone(tz_str)  # validate
+        pytz.timezone(tz_str)
     except pytz.exceptions.UnknownTimeZoneError:
-        await message.answer(
-            f"❌ Unknown timezone: <code>{tz_str}</code>\n"
-            "Try something like <code>Europe/Riga</code> or <code>UTC</code>.",
-            parse_mode="HTML",
-        )
+        await message.answer(f"❌ Неизвестный часовой пояс: <code>{tz_str}</code>", parse_mode="HTML")
         return
     setting = await get_notification_setting(session, current_user.id)
     enabled = setting.enabled if setting else False
     await update_notification_setting(session, current_user.id, enabled=enabled, timezone_str=tz_str)
     await state.clear()
-    await message.answer(
-        f"✅ Timezone set to <b>{tz_str}</b>",
-        parse_mode="HTML",
-        reply_markup=main_menu_keyboard(),
-    )
+    await message.answer(f"✅ Часовой пояс установлен: <b>{tz_str}</b>", parse_mode="HTML", reply_markup=main_menu_keyboard())
