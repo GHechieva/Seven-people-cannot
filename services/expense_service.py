@@ -1,6 +1,6 @@
 from datetime import datetime, date
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 from models.expense import Expense, ExpenseParticipant
 from models.trip import Trip
@@ -21,8 +21,10 @@ async def add_expense(
     custom_percentages: dict[int, float] | None = None,
     receipt_photo_id: str | None = None,
     ocr_raw: str | None = None,
+    comment: str | None = None,
 ) -> Expense:
     amount_in_base = await convert_amount(amount, currency, trip.base_currency)
+    amount_in_rub = await convert_amount(amount, currency, "RUB")
 
     expense = Expense(
         trip_id=trip.id,
@@ -31,10 +33,12 @@ async def add_expense(
         amount=amount,
         currency=currency,
         amount_in_base=amount_in_base,
+        amount_in_rub=amount_in_rub,
         base_currency=trip.base_currency,
         category=category,
         receipt_photo_id=receipt_photo_id,
         ocr_raw=ocr_raw,
+        comment=comment,
     )
     session.add(expense)
     await session.flush()
@@ -42,8 +46,6 @@ async def add_expense(
     if split_type == "equal":
         share = round(100.0 / len(participants), 4)
         shares = {u.id: share for u in participants}
-        # Fix rounding on last participant
-        total = sum(shares.values())
         last_id = participants[-1].id
         shares[last_id] = round(100.0 - sum(v for k, v in shares.items() if k != last_id), 4)
     else:
@@ -57,6 +59,7 @@ async def add_expense(
             user_id=participant.id,
             share_percent=pct,
             share_amount=share_amount,
+            is_paid=False,
         )
         session.add(ep)
 
@@ -119,6 +122,28 @@ async def delete_expense(session: AsyncSession, expense: Expense) -> None:
     await session.commit()
 
 
+async def mark_participant_paid(
+    session: AsyncSession,
+    expense_id: int,
+    user_id: int,
+) -> bool:
+    result = await session.execute(
+        select(ExpenseParticipant).where(
+            and_(
+                ExpenseParticipant.expense_id == expense_id,
+                ExpenseParticipant.user_id == user_id,
+            )
+        )
+    )
+    ep = result.scalar_one_or_none()
+    if not ep:
+        return False
+    ep.is_paid = not ep.is_paid
+    ep.paid_at = datetime.utcnow() if ep.is_paid else None
+    await session.commit()
+    return ep.is_paid
+
+
 async def update_expense_description(
     session: AsyncSession, expense: Expense, new_description: str
 ) -> None:
@@ -130,27 +155,18 @@ async def update_expense_description(
 async def calculate_balances(
     session: AsyncSession, trip_id: int
 ) -> dict[int, float]:
-    """
-    Returns {user_id: net_balance} where positive = owed money, negative = owes money.
-    """
     expenses = await get_trip_expenses(session, trip_id)
     balances: dict[int, float] = {}
-
     for expense in expenses:
         payer_id = expense.payer_id
         balances[payer_id] = balances.get(payer_id, 0.0) + expense.amount_in_base
         for ep in expense.participants:
-            balances[ep.user_id] = balances.get(ep.user_id, 0.0) - ep.share_amount
-
+            if not ep.is_paid:
+                balances[ep.user_id] = balances.get(ep.user_id, 0.0) - ep.share_amount
     return balances
 
 
 def simplify_debts(balances: dict[int, float]) -> list[tuple[int, int, float]]:
-    """
-    Debt simplification algorithm.
-    Returns list of (debtor_id, creditor_id, amount).
-    """
-    # Separate into creditors (positive) and debtors (negative)
     creditors = sorted(
         [(uid, bal) for uid, bal in balances.items() if bal > 0.005],
         key=lambda x: -x[1],
@@ -159,27 +175,21 @@ def simplify_debts(balances: dict[int, float]) -> list[tuple[int, int, float]]:
         [(uid, -bal) for uid, bal in balances.items() if bal < -0.005],
         key=lambda x: -x[1],
     )
-
     creditors = list(creditors)
     debtors = list(debtors)
     transfers: list[tuple[int, int, float]] = []
-
     ci, di = 0, 0
     while ci < len(creditors) and di < len(debtors):
         cid, credit = creditors[ci]
         did, debt = debtors[di]
-
         amount = min(credit, debt)
         transfers.append((did, cid, round(amount, 2)))
-
         creditors[ci] = (cid, credit - amount)
         debtors[di] = (did, debt - amount)
-
         if creditors[ci][1] < 0.005:
             ci += 1
         if debtors[di][1] < 0.005:
             di += 1
-
     return transfers
 
 
