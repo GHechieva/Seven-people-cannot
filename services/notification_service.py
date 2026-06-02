@@ -12,6 +12,10 @@ from database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
+# Данг — Asia/Ho_Chi_Minh (UTC+7)
+DANANG_TZ = "Asia/Ho_Chi_Minh"
+REMINDER_HOUR = 21  # 21:00 по Дананге
+
 
 async def get_notification_setting(session: AsyncSession, user_id: int) -> NotificationSetting | None:
     result = await session.execute(
@@ -24,7 +28,7 @@ async def update_notification_setting(
     session: AsyncSession,
     user_id: int,
     enabled: bool,
-    timezone_str: str = "UTC",
+    timezone_str: str = DANANG_TZ,
 ) -> NotificationSetting:
     setting = await get_notification_setting(session, user_id)
     if setting:
@@ -38,19 +42,30 @@ async def update_notification_setting(
 
 
 async def run_daily_reminder_loop(bot: Bot) -> None:
-    """Background task that fires daily reminders at 21:00 user-local time."""
-    logger.info("Daily reminder loop started")
+    logger.info("Цикл ежедневных напоминаний запущен")
+    sent_today: set[int] = set()  # user_ids которым уже отправили сегодня
+
     while True:
         try:
-            await _check_and_send_reminders(bot)
+            now_utc = datetime.now(timezone.utc)
+            tz = pytz.timezone(DANANG_TZ)
+            local_now = now_utc.astimezone(tz)
+
+            # Сбрасываем отметки в полночь
+            if local_now.hour == 0 and local_now.minute == 0:
+                sent_today.clear()
+
+            # Отправляем в 21:00 по Дананге
+            if local_now.hour == REMINDER_HOUR and local_now.minute == 0:
+                await _send_reminders(bot, sent_today)
+
         except Exception as e:
-            logger.error(f"Reminder loop error: {e}")
-        # Check every minute
+            logger.error(f"Ошибка в цикле напоминаний: {e}")
+
         await asyncio.sleep(60)
 
 
-async def _check_and_send_reminders(bot: Bot) -> None:
-    now_utc = datetime.now(timezone.utc)
+async def _send_reminders(bot: Bot, sent_today: set[int]) -> None:
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(NotificationSetting)
@@ -60,16 +75,17 @@ async def _check_and_send_reminders(bot: Bot) -> None:
         settings = result.scalars().all()
 
         for setting in settings:
+            if setting.user_id in sent_today:
+                continue
             try:
-                tz = pytz.timezone(setting.timezone)
-                local_now = now_utc.astimezone(tz)
-                if local_now.hour == setting.reminder_hour and local_now.minute == 0:
-                    await bot.send_message(
-                        setting.user.telegram_id,
-                        "🌙 <b>Daily Reminder</b>\n\n"
-                        "Don't forget to log today's expenses!\n"
-                        "Use /today to see what's been added.",
-                        parse_mode="HTML",
-                    )
+                await bot.send_message(
+                    setting.user.telegram_id,
+                    "🌙 <b>Не забудь внести траты за сегодня!</b>\n\n"
+                    "Открой поездку и нажми ➕ Добавить трату.\n"
+                    "Это займёт 10 секунд 😊",
+                    parse_mode="HTML",
+                )
+                sent_today.add(setting.user_id)
+                logger.info(f"Напоминание отправлено пользователю {setting.user_id}")
             except Exception as e:
-                logger.warning(f"Failed to send reminder to user {setting.user_id}: {e}")
+                logger.warning(f"Не удалось отправить напоминание {setting.user_id}: {e}")
