@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, DateTime, Float, ForeignKey, Integer, Boolean, Text
+from sqlalchemy import String, DateTime, Float, ForeignKey, Boolean, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base
 
@@ -11,6 +11,14 @@ CATEGORY_EMOJI = {
     "entertainment": "🎭",
     "shopping": "🛍️",
     "other": "📦",
+}
+CATEGORY_RU = {
+    "food": "Еда",
+    "transport": "Транспорт",
+    "housing": "Жильё",
+    "entertainment": "Развлечения",
+    "shopping": "Покупки",
+    "other": "Другое",
 }
 
 
@@ -24,10 +32,12 @@ class Expense(Base):
     amount: Mapped[float] = mapped_column(Float, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
     amount_in_base: Mapped[float] = mapped_column(Float, nullable=False)
+    amount_in_rub: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     base_currency: Mapped[str] = mapped_column(String(3), nullable=False)
     category: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
     receipt_photo_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     ocr_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -42,6 +52,10 @@ class Expense(Base):
     def category_emoji(self) -> str:
         return CATEGORY_EMOJI.get(self.category, "📦")
 
+    @property
+    def category_ru(self) -> str:
+        return CATEGORY_RU.get(self.category, "Другое")
+
 
 class ExpenseParticipant(Base):
     __tablename__ = "expense_participants"
@@ -51,6 +65,8 @@ class ExpenseParticipant(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     share_percent: Mapped[float] = mapped_column(Float, nullable=False)
     share_amount: Mapped[float] = mapped_column(Float, nullable=False)
+    is_paid: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     expense: Mapped["Expense"] = relationship("Expense", back_populates="participants")
     user: Mapped["User"] = relationship("User", back_populates="expense_participations")
