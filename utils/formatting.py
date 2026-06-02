@@ -1,4 +1,4 @@
-from models.expense import Expense, CATEGORY_EMOJI
+from models.expense import Expense, CATEGORY_EMOJI, CATEGORY_RU
 
 
 def fmt_amount(amount: float, currency: str) -> str:
@@ -7,19 +7,26 @@ def fmt_amount(amount: float, currency: str) -> str:
 
 def fmt_expense_line(exp: Expense) -> str:
     emoji = CATEGORY_EMOJI.get(exp.category, "📦")
-    comment = f"\n   💬 {exp.ocr_raw[:50]}" if exp.ocr_raw else ""
+    rub_str = ""
+    if exp.currency != "RUB" and exp.amount_in_rub and exp.amount_in_rub > 0:
+        rub_str = f" <i>({exp.amount_in_rub:,.0f} ₽)</i>"
+    comment_str = f"\n   💬 {exp.comment}" if exp.comment else ""
+
+    paid_count = sum(1 for p in exp.participants if p.is_paid)
+    total_count = len(exp.participants)
+    paid_str = ""
+    if total_count > 0:
+        paid_str = f"\n   ✅ Погашено: {paid_count}/{total_count}"
+
     return (
-        f"{emoji} <b>{exp.description}</b>\n"
-        f"   💰 {fmt_amount(exp.amount, exp.currency)}"
-        + (f" (~{fmt_amount(exp.amount_in_base, exp.base_currency)})" if exp.currency != exp.base_currency else "")
-        + f"\n   👤 Оплатил: {exp.payer.display_name}\n"
+        f"{emoji} <b>{exp.description}</b>  #{exp.id}\n"
+        f"   💰 {fmt_amount(exp.amount, exp.currency)}{rub_str}\n"
+        f"   👤 Платил: {exp.payer.display_name}\n"
+        f"   🗂 {CATEGORY_RU.get(exp.category, exp.category)}\n"
         f"   🕐 {exp.created_at.strftime('%d.%m %H:%M')}"
-        + comment
+        + paid_str
+        + comment_str
     )
-
-
-def fmt_balance_line(debtor, creditor, amount: float, currency: str) -> str:
-    return f"💸 {debtor.display_name} должен {creditor.display_name} <b>{fmt_amount(amount, currency)}</b>"
 
 
 def fmt_trip_header(trip, member_count: int = 0) -> str:
