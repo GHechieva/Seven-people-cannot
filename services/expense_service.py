@@ -63,11 +63,8 @@ async def add_expense(
         )
         session.add(ep)
 
-await session.commit()
+    await session.commit()
 
-    # Перезагружаем с участниками чтобы избежать lazy loading
-    from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
     result = await session.execute(
         select(Expense)
         .options(
@@ -84,10 +81,14 @@ async def get_trip_expenses(
     trip_id: int,
     include_deleted: bool = False,
 ) -> list[Expense]:
-    q = select(Expense).options(
-        selectinload(Expense.payer),
-        selectinload(Expense.participants).selectinload(ExpenseParticipant.user),
-    ).where(Expense.trip_id == trip_id)
+    q = (
+        select(Expense)
+        .options(
+            selectinload(Expense.payer),
+            selectinload(Expense.participants).selectinload(ExpenseParticipant.user),
+        )
+        .where(Expense.trip_id == trip_id)
+    )
     if not include_deleted:
         q = q.where(Expense.is_deleted == False)
     q = q.order_by(Expense.created_at.desc())
