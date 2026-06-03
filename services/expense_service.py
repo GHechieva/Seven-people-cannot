@@ -63,9 +63,20 @@ async def add_expense(
         )
         session.add(ep)
 
-    await session.commit()
-    await session.refresh(expense)
-    return expense
+await session.commit()
+
+    # Перезагружаем с участниками чтобы избежать lazy loading
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    result = await session.execute(
+        select(Expense)
+        .options(
+            selectinload(Expense.payer),
+            selectinload(Expense.participants).selectinload(ExpenseParticipant.user),
+        )
+        .where(Expense.id == expense.id)
+    )
+    return result.scalar_one()
 
 
 async def get_trip_expenses(
