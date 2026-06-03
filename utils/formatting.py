@@ -7,19 +7,24 @@ def fmt_amount(amount: float, currency: str) -> str:
 
 def fmt_expense_line(exp: Expense) -> str:
     emoji = CATEGORY_EMOJI.get(exp.category, "📦")
+
     rub_str = ""
     if exp.currency != "RUB" and exp.amount_in_rub and exp.amount_in_rub > 0:
         rub_str = f" <i>({exp.amount_in_rub:,.0f} ₽)</i>"
+
     comment_str = f"\n   💬 {exp.comment}" if exp.comment else ""
 
-    paid_count = sum(1 for p in exp.participants if p.is_paid)
-    total_count = len(exp.participants)
-    paid_str = ""
-    if total_count > 0:
-        paid_str = f"\n   ✅ Погашено: {paid_count}/{total_count}"
+    # Безопасно читаем participants — они должны быть уже загружены через selectinload
+    try:
+        parts = list(exp.participants)
+        paid_count = sum(1 for p in parts if p.is_paid)
+        total_count = len(parts)
+        paid_str = f"\n   ✅ Погашено: {paid_count}/{total_count}" if total_count > 0 else ""
+    except Exception:
+        paid_str = ""
 
     return (
-        f"{emoji} <b>{exp.description}</b>  #{exp.id}\n"
+        f"{emoji} <b>{exp.description}</b>  [#{exp.id}]\n"
         f"   💰 {fmt_amount(exp.amount, exp.currency)}{rub_str}\n"
         f"   👤 Платил: {exp.payer.display_name}\n"
         f"   🗂 {CATEGORY_RU.get(exp.category, exp.category)}\n"
